@@ -302,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return url;
     }
 
-    // CORS Proxies to try - only reliable, working proxies
+    // CORS Proxies to try as fallback - only reliable, working proxies
     // Note: allorigins /get endpoint returns JSON, /raw returns raw content
     const CORS_PROXIES = [
         {
@@ -325,34 +325,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     ];
 
-    // Fetch ads.txt with multiple fallbacks and retry logic
+    // Fetch ads.txt - tries serverless API first, then falls back to CORS proxies
     async function fetchAdsTxtWithRetry(baseDomain) {
-        // Normalize domain (lowercase, trim whitespace)
         const normalizedDomain = baseDomain.toLowerCase().trim();
 
-        // Domain variants to try (most common first)
-        const domainVariants = [
-            normalizedDomain,
-            `www.${normalizedDomain}`
-        ];
+        // STEP 1: Try our own serverless API first (most reliable, no CORS issues)
+        try {
+            const result = await fetchFromServerlessAPI(normalizedDomain);
+            if (result) {
+                return result;
+            }
+        } catch (error) {
+            console.log('Serverless API failed, trying CORS proxies:', error.message);
+        }
 
+        // STEP 2: Fallback to CORS proxies
+        const domainVariants = [normalizedDomain, `www.${normalizedDomain}`];
         const errors = [];
 
-        // Try each domain variant with HTTPS only (HTTP rarely works for ads.txt)
         for (const domain of domainVariants) {
             const adsTxtUrl = `https://${domain}/ads.txt`;
 
-            // Try each proxy sequentially (more reliable than parallel for debugging)
             for (const proxy of CORS_PROXIES) {
                 try {
                     const proxyUrl = proxy.url(adsTxtUrl);
                     const content = await fetchWithProxy(proxyUrl, proxy.parseResponse);
 
-                    // Validate the content
                     if (isValidAdsTxt(content)) {
                         return { url: adsTxtUrl, content };
                     } else {
-                        errors.push(`${proxy.name}: Invalid content (possibly blocked or error page)`);
+                        errors.push(`${proxy.name}: Invalid content`);
                     }
                 } catch (error) {
                     errors.push(`${proxy.name}: ${error.message}`);
@@ -360,21 +362,41 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Check if site might be blocking access
-        const hasAccessDenied = errors.some(e =>
-            e.toLowerCase().includes('403') ||
-            e.toLowerCase().includes('blocked') ||
-            e.toLowerCase().includes('denied')
-        );
-
-        if (hasAccessDenied) {
-            throw new Error('No ads.txt found. This website may block automated access.');
-        }
-
         throw new Error('No ads.txt found.');
     }
 
-    // Simple fetch with proxy - no extra headers that trigger preflight
+    // Fetch from our Vercel Serverless API
+    async function fetchFromServerlessAPI(domain) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout for server
+
+        try {
+            const apiUrl = `/api/fetch-ads-txt?domain=${encodeURIComponent(domain)}`;
+            const response = await fetch(apiUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (data.success && data.content) {
+                return { url: data.url, content: data.content };
+            }
+
+            throw new Error(data.error || 'No content returned');
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Server request timed out');
+            }
+            throw error;
+        }
+    }
+
+    // Simple fetch with CORS proxy - no extra headers that trigger preflight
     async function fetchWithProxy(url, parseResponse) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -382,7 +404,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(url, {
                 signal: controller.signal
-                // No custom headers - avoids CORS preflight issues
             });
 
             clearTimeout(timeoutId);
