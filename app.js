@@ -271,30 +271,29 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // Extract domain from input
             const domain = extractDomain(input);
-            const adsTxtFullUrl = `https://${domain}/ads.txt`;
 
-            // Fetch ads.txt using CORS proxy
-            const content = await fetchAdsTxt(domain);
+            // Fetch ads.txt with robust retry logic
+            const result = await fetchAdsTxtWithRetry(domain);
 
             // Display results
-            displayAdsTxtResults(adsTxtFullUrl, content);
+            displayAdsTxtResults(result.url, result.content);
         } catch (error) {
             showError(error.message || 'Failed to extract ads.txt');
         }
     }
 
-    // Extract base domain from URL input
+    // Extract base domain from URL input (keeps www if present for retry logic)
     function extractDomain(input) {
         let url = input.trim();
 
         // Remove protocol
         url = url.replace(/^https?:\/\//, '');
 
-        // Remove www. prefix
-        url = url.replace(/^www\./, '');
-
         // Remove path, query, and fragment
         url = url.split('/')[0].split('?')[0].split('#')[0];
+
+        // Remove www. prefix for base domain
+        url = url.replace(/^www\./, '');
 
         if (!url) {
             throw new Error('Invalid URL. Please enter a valid domain.');
@@ -303,35 +302,239 @@ document.addEventListener('DOMContentLoaded', () => {
         return url;
     }
 
-    // Fetch ads.txt content using CORS proxy
-    async function fetchAdsTxt(domain) {
-        const adsTxtUrl = `https://${domain}/ads.txt`;
+    // CORS Proxies to try as fallback - only reliable, working proxies
+    // Note: allorigins /get endpoint returns JSON, /raw returns raw content
+    const CORS_PROXIES = [
+        {
+            name: 'allorigins-json',
+            url: (targetUrl) => `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+            parseResponse: async (response) => {
+                const json = await response.json();
+                return json.contents;
+            }
+        },
+        {
+            name: 'allorigins-raw',
+            url: (targetUrl) => `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+            parseResponse: async (response) => response.text()
+        },
+        {
+            name: 'corsproxy',
+            url: (targetUrl) => `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+            parseResponse: async (response) => response.text()
+        }
+    ];
 
-        // Using allorigins.win as CORS proxy
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(adsTxtUrl)}`;
+    // Fetch ads.txt - tries serverless API first, then falls back to CORS proxies
+    async function fetchAdsTxtWithRetry(baseDomain) {
+        const normalizedDomain = baseDomain.toLowerCase().trim();
+
+        // STEP 1: Try our own serverless API first (most reliable, no CORS issues)
+        try {
+            const result = await fetchFromServerlessAPI(normalizedDomain);
+            if (result) {
+                return result;
+            }
+        } catch (error) {
+            console.log('Serverless API failed, trying CORS proxies:', error.message);
+        }
+
+        // STEP 2: Fallback to CORS proxies
+        const domainVariants = [normalizedDomain, `www.${normalizedDomain}`];
+        const errors = [];
+
+        for (const domain of domainVariants) {
+            const adsTxtUrl = `https://${domain}/ads.txt`;
+
+            for (const proxy of CORS_PROXIES) {
+                try {
+                    const proxyUrl = proxy.url(adsTxtUrl);
+                    const content = await fetchWithProxy(proxyUrl, proxy.parseResponse);
+
+                    if (isValidAdsTxt(content)) {
+                        return { url: adsTxtUrl, content };
+                    } else {
+                        errors.push(`${proxy.name}: Invalid content`);
+                    }
+                } catch (error) {
+                    errors.push(`${proxy.name}: ${error.message}`);
+                }
+            }
+        }
+
+        throw new Error('No ads.txt found.');
+    }
+
+    // Fetch from our Vercel Serverless API
+    async function fetchFromServerlessAPI(domain) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout for server
 
         try {
-            const response = await fetch(proxyUrl);
+            const apiUrl = `/api/fetch-ads-txt?domain=${encodeURIComponent(domain)}`;
+            const response = await fetch(apiUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
-                throw new Error('No ads.txt found.');
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `HTTP ${response.status}`);
             }
 
-            const content = await response.text();
+            const data = await response.json();
 
-            // Check if the response is actually an ads.txt file (should contain typical ads.txt content)
-            // ads.txt files typically contain domain references or start with comments
-            if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<HTML')) {
-                throw new Error('No ads.txt found.');
+            if (data.success && data.content) {
+                return { url: data.url, content: data.content };
+            }
+
+            throw new Error(data.error || 'No content returned');
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Server request timed out');
+            }
+            throw error;
+        }
+    }
+
+    // Simple fetch with CORS proxy - no extra headers that trigger preflight
+    async function fetchWithProxy(url, parseResponse) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        try {
+            const response = await fetch(url, {
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const content = await parseResponse(response);
+
+            if (!content || content.trim().length === 0) {
+                throw new Error('Empty response');
             }
 
             return content;
         } catch (error) {
-            if (error.message === 'No ads.txt found.') {
-                throw error;
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Request timed out');
             }
-            throw new Error('No ads.txt found.');
+            throw error;
         }
+    }
+
+    // Validate if content is a valid ads.txt file (not HTML or error page)
+    function isValidAdsTxt(content) {
+        if (!content || typeof content !== 'string') {
+            return false;
+        }
+
+        const trimmedContent = content.trim().toLowerCase();
+
+        // Quick rejection: if it starts with < it's likely HTML/XML
+        if (trimmedContent.startsWith('<')) {
+            return false;
+        }
+
+        // Check for HTML/error indicators (comprehensive list)
+        const invalidIndicators = [
+            '<!doctype',
+            '<html',
+            '<head',
+            '<body',
+            '<meta',
+            '<script',
+            '<div',
+            '<title',
+            '<span',
+            '<p>',
+            '<?xml',
+            '<error',
+            '<response',
+            '404 not found',
+            'page not found',
+            'not found',
+            'access denied',
+            'forbidden',
+            'unauthorized',
+            "you don't have permission",
+            'permission denied',
+            'error 404',
+            'error 403',
+            'error 500',
+            'internal server error',
+            'bad gateway',
+            'service unavailable',
+            'cloudflare',
+            'just a moment',
+            'checking your browser',
+            'enable javascript',
+            'cookies are required',
+            'reference #',
+            'errors.edgesuite.net',
+            '{"error',
+            '{"message',
+            'null',
+            'undefined'
+        ];
+
+        for (const indicator of invalidIndicators) {
+            if (trimmedContent.includes(indicator)) {
+                return false;
+            }
+        }
+
+        // Positive validation: ads.txt should contain typical patterns
+        const lines = content.split('\n').filter(line => line.trim().length > 0);
+
+        if (lines.length === 0) {
+            return false;
+        }
+
+        // Check if at least some lines look like ads.txt entries
+        const validPatterns = [
+            /^#/,                                                           // Comments
+            /^[a-z0-9.-]+\s*,\s*[a-z0-9_-]+\s*,\s*(DIRECT|RESELLER)/i,     // Standard ads.txt line
+            /^[a-z0-9.-]+\s*,\s*pub-\d+\s*,\s*(DIRECT|RESELLER)/i,         // Google format
+            /^CONTACT=/i,                                                   // Contact directive
+            /^SUBDOMAIN=/i,                                                 // Subdomain directive
+            /^OWNERDOMAIN=/i,                                               // Owner domain directive
+            /^MANAGERDOMAIN=/i,                                             // Manager domain directive
+            /^INVENTORYPARTNERDOMAIN=/i,                                    // Inventory partner directive
+            /^VARIABLE=/i,                                                  // Variable directive
+            /^placeholder/i                                                 // Placeholder (some sites use this)
+        ];
+
+        let validLineCount = 0;
+        let totalNonEmptyLines = 0;
+
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.length > 0) {
+                totalNonEmptyLines++;
+                if (validPatterns.some(pattern => pattern.test(trimmedLine))) {
+                    validLineCount++;
+                }
+            }
+        }
+
+        // At least 1 valid line, or if small file (<=3 lines), at least 30% valid
+        if (validLineCount >= 1) {
+            return true;
+        }
+
+        // For very small files, be more lenient
+        if (totalNonEmptyLines <= 3 && totalNonEmptyLines > 0) {
+            // Check if any line contains comma (basic ads.txt structure)
+            return lines.some(line => line.includes(',') && !line.startsWith('#'));
+        }
+
+        return false;
     }
 
     // Display ads.txt results
