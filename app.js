@@ -25,11 +25,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const fragmentValue = document.getElementById('fragment-value');
     const summaryText = document.getElementById('summary-text');
 
+    // Ads.txt Elements
+    const adsTxtBtn = document.getElementById('ads-txt-btn');
+    const adsTxtSection = document.getElementById('ads-txt-section');
+    const adsTxtUrl = document.getElementById('ads-txt-url');
+    const adsTxtContent = document.getElementById('ads-txt-content');
+
     // Example buttons
     const exampleButtons = document.querySelectorAll('.example-btn');
 
     // Event Listeners
     analyzeBtn.addEventListener('click', handleAnalyze);
+    adsTxtBtn.addEventListener('click', handleExtractAdsTxt);
     websiteInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             handleAnalyze();
@@ -222,6 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsSection.classList.add('hidden');
         loadingSection.classList.add('hidden');
         errorSection.classList.add('hidden');
+        adsTxtSection.classList.add('hidden');
     }
 
     function showLoading() {
@@ -245,5 +253,98 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Extract ads.txt handler
+    async function handleExtractAdsTxt() {
+        const input = websiteInput.value.trim();
+
+        if (!input) {
+            showError('Please enter a website URL to extract ads.txt');
+            return;
+        }
+
+        // Reset UI
+        hideAllSections();
+        showLoading();
+
+        try {
+            // Extract domain from input
+            const domain = extractDomain(input);
+            const adsTxtFullUrl = `https://${domain}/ads.txt`;
+
+            // Fetch ads.txt using CORS proxy
+            const content = await fetchAdsTxt(domain);
+
+            // Display results
+            displayAdsTxtResults(adsTxtFullUrl, content);
+        } catch (error) {
+            showError(error.message || 'Failed to extract ads.txt');
+        }
+    }
+
+    // Extract base domain from URL input
+    function extractDomain(input) {
+        let url = input.trim();
+
+        // Remove protocol
+        url = url.replace(/^https?:\/\//, '');
+
+        // Remove www. prefix
+        url = url.replace(/^www\./, '');
+
+        // Remove path, query, and fragment
+        url = url.split('/')[0].split('?')[0].split('#')[0];
+
+        if (!url) {
+            throw new Error('Invalid URL. Please enter a valid domain.');
+        }
+
+        return url;
+    }
+
+    // Fetch ads.txt content using CORS proxy
+    async function fetchAdsTxt(domain) {
+        const adsTxtUrl = `https://${domain}/ads.txt`;
+
+        // Using allorigins.win as CORS proxy
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(adsTxtUrl)}`;
+
+        try {
+            const response = await fetch(proxyUrl);
+
+            if (!response.ok) {
+                throw new Error('No ads.txt found.');
+            }
+
+            const content = await response.text();
+
+            // Check if the response is actually an ads.txt file (should contain typical ads.txt content)
+            // ads.txt files typically contain domain references or start with comments
+            if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<HTML')) {
+                throw new Error('No ads.txt found.');
+            }
+
+            return content;
+        } catch (error) {
+            if (error.message === 'No ads.txt found.') {
+                throw error;
+            }
+            throw new Error('No ads.txt found.');
+        }
+    }
+
+    // Display ads.txt results
+    function displayAdsTxtResults(url, content) {
+        hideLoading();
+
+        // Update URL display
+        adsTxtUrl.textContent = url;
+
+        // Display raw content exactly as received
+        adsTxtContent.textContent = content;
+
+        // Show ads.txt section
+        adsTxtSection.classList.remove('hidden');
     }
 });
