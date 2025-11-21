@@ -25,12 +25,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const fragmentValue = document.getElementById('fragment-value');
     const summaryText = document.getElementById('summary-text');
 
+    // Example buttons
+    const exampleButtons = document.querySelectorAll('.example-btn');
+
     // Event Listeners
     analyzeBtn.addEventListener('click', handleAnalyze);
     websiteInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             handleAnalyze();
         }
+    });
+
+    // Example button click handlers
+    exampleButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const url = btn.getAttribute('data-url');
+            websiteInput.value = url;
+            websiteInput.focus();
+        });
     });
 
     // Main analyze handler
