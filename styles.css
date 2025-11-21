@@ -135,6 +135,32 @@ body {
     transform: translateX(4px);
 }
 
+/* Ads.txt Button */
+.ads-txt-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--secondary-color);
+    padding: 16px 24px;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.ads-txt-btn:hover {
+    background: rgba(6, 182, 212, 0.15);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(6, 182, 212, 0.3);
+}
+
+.ads-txt-btn:active {
+    transform: translateY(0);
+}
+
 /* Example Buttons */
 .examples-container {
     display: flex;
@@ -351,6 +377,62 @@ body {
     font-size: 1.1rem;
 }
 
+/* Ads.txt Section */
+.ads-txt-section {
+    animation: slideUp 0.4s ease;
+}
+
+.ads-txt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ads-txt-header h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.ads-txt-content {
+    background: var(--surface);
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.ads-txt-content pre {
+    padding: 24px;
+    margin: 0;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.ads-txt-content pre::-webkit-scrollbar {
+    width: 8px;
+}
+
+.ads-txt-content pre::-webkit-scrollbar-track {
+    background: var(--surface);
+}
+
+.ads-txt-content pre::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+.ads-txt-content pre::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
 /* Utility Classes */
 .hidden {
     display: none !important;
@@ -375,7 +457,13 @@ body {
         justify-content: center;
     }
 
-    .results-header {
+    .ads-txt-btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .results-header,
+    .ads-txt-header {
         flex-direction: column;
         gap: 12px;
         text-align: center;

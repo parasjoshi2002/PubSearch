@@ -30,6 +30,9 @@
                     <span class="btn-text">Analyze</span>
                     <span class="btn-icon">→</span>
                 </button>
+                <button id="ads-txt-btn" class="ads-txt-btn">
+                    <span class="btn-text">Extract ads.txt</span>
+                </button>
             </div>
 
             <!-- Example Buttons -->
@@ -160,6 +163,17 @@
         <div id="error-section" class="error-section hidden">
             <div class="error-icon">⚠️</div>
             <p id="error-message">An error occurred</p>
+        </div>
+
+        <!-- Ads.txt Results Section -->
+        <div id="ads-txt-section" class="ads-txt-section hidden">
+            <div class="ads-txt-header">
+                <h2>ads.txt Content</h2>
+                <span id="ads-txt-url" class="analyzed-url"></span>
+            </div>
+            <div class="ads-txt-content">
+                <pre id="ads-txt-content"></pre>
+            </div>
         </div>
     </div>
 
