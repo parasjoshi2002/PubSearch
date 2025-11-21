@@ -271,30 +271,29 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // Extract domain from input
             const domain = extractDomain(input);
-            const adsTxtFullUrl = `https://${domain}/ads.txt`;
 
-            // Fetch ads.txt using CORS proxy
-            const content = await fetchAdsTxt(domain);
+            // Fetch ads.txt with robust retry logic
+            const result = await fetchAdsTxtWithRetry(domain);
 
             // Display results
-            displayAdsTxtResults(adsTxtFullUrl, content);
+            displayAdsTxtResults(result.url, result.content);
         } catch (error) {
             showError(error.message || 'Failed to extract ads.txt');
         }
     }
 
-    // Extract base domain from URL input
+    // Extract base domain from URL input (keeps www if present for retry logic)
     function extractDomain(input) {
         let url = input.trim();
 
         // Remove protocol
         url = url.replace(/^https?:\/\//, '');
 
-        // Remove www. prefix
-        url = url.replace(/^www\./, '');
-
         // Remove path, query, and fragment
         url = url.split('/')[0].split('?')[0].split('#')[0];
+
+        // Remove www. prefix for base domain
+        url = url.replace(/^www\./, '');
 
         if (!url) {
             throw new Error('Invalid URL. Please enter a valid domain.');
@@ -303,35 +302,146 @@ document.addEventListener('DOMContentLoaded', () => {
         return url;
     }
 
-    // Fetch ads.txt content using CORS proxy
-    async function fetchAdsTxt(domain) {
-        const adsTxtUrl = `https://${domain}/ads.txt`;
+    // CORS Proxies to try (in order of preference)
+    const CORS_PROXIES = [
+        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+    ];
 
-        // Using allorigins.win as CORS proxy
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(adsTxtUrl)}`;
+    // Fetch ads.txt with multiple fallbacks and retry logic
+    async function fetchAdsTxtWithRetry(baseDomain) {
+        // Domain variants to try (without www first, then with www)
+        const domainVariants = [
+            baseDomain,
+            `www.${baseDomain}`
+        ];
+
+        const errors = [];
+
+        // Try each domain variant
+        for (const domain of domainVariants) {
+            const adsTxtUrl = `https://${domain}/ads.txt`;
+
+            // Try each CORS proxy
+            for (let proxyIndex = 0; proxyIndex < CORS_PROXIES.length; proxyIndex++) {
+                try {
+                    const proxyUrl = CORS_PROXIES[proxyIndex](adsTxtUrl);
+                    const content = await fetchWithTimeout(proxyUrl, 10000);
+
+                    // Validate the content is actually ads.txt
+                    if (isValidAdsTxt(content)) {
+                        return { url: adsTxtUrl, content };
+                    }
+                } catch (error) {
+                    errors.push(`${domain} (proxy ${proxyIndex + 1}): ${error.message}`);
+                    // Continue to next proxy/domain
+                }
+            }
+        }
+
+        // All attempts failed
+        throw new Error('No ads.txt found.');
+    }
+
+    // Fetch with timeout
+    async function fetchWithTimeout(url, timeoutMs) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
-            const response = await fetch(proxyUrl);
+            const response = await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    'Accept': 'text/plain, */*'
+                }
+            });
+
+            clearTimeout(timeoutId);
 
             if (!response.ok) {
-                throw new Error('No ads.txt found.');
+                throw new Error(`HTTP ${response.status}`);
             }
 
             const content = await response.text();
 
-            // Check if the response is actually an ads.txt file (should contain typical ads.txt content)
-            // ads.txt files typically contain domain references or start with comments
-            if (content.includes('<!DOCTYPE') || content.includes('<html') || content.includes('<HTML')) {
-                throw new Error('No ads.txt found.');
+            if (!content || content.trim().length === 0) {
+                throw new Error('Empty response');
             }
 
             return content;
         } catch (error) {
-            if (error.message === 'No ads.txt found.') {
-                throw error;
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error('Request timed out');
             }
-            throw new Error('No ads.txt found.');
+            throw error;
         }
+    }
+
+    // Validate if content is a valid ads.txt file (not HTML or error page)
+    function isValidAdsTxt(content) {
+        if (!content || typeof content !== 'string') {
+            return false;
+        }
+
+        const trimmedContent = content.trim().toLowerCase();
+
+        // Check for HTML indicators (error pages, redirects, etc.)
+        const htmlIndicators = [
+            '<!doctype',
+            '<html',
+            '<head',
+            '<body',
+            '<meta',
+            '<script',
+            '<div',
+            '<title',
+            '<?xml',
+            '<error',
+            '404 not found',
+            'page not found',
+            'access denied',
+            'forbidden'
+        ];
+
+        for (const indicator of htmlIndicators) {
+            if (trimmedContent.includes(indicator)) {
+                return false;
+            }
+        }
+
+        // Positive validation: ads.txt should contain typical patterns
+        // Lines with commas (domain, publisher-id, relationship)
+        // Or comment lines starting with #
+        // Or CONTACT/SUBDOMAIN/OWNERDOMAIN/MANAGERDOMAIN directives
+        const lines = content.split('\n').filter(line => line.trim().length > 0);
+
+        if (lines.length === 0) {
+            return false;
+        }
+
+        // Check if at least some lines look like ads.txt entries
+        const validPatterns = [
+            /^#/,                                           // Comments
+            /^[a-z0-9.-]+\s*,\s*[a-z0-9-]+\s*,\s*(DIRECT|RESELLER)/i,  // Standard ads.txt line
+            /^CONTACT=/i,                                   // Contact directive
+            /^SUBDOMAIN=/i,                                 // Subdomain directive
+            /^OWNERDOMAIN=/i,                               // Owner domain directive
+            /^MANAGERDOMAIN=/i,                             // Manager domain directive
+            /^INVENTORYPARTNERDOMAIN=/i                     // Inventory partner directive
+        ];
+
+        let validLineCount = 0;
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (validPatterns.some(pattern => pattern.test(trimmedLine))) {
+                validLineCount++;
+            }
+        }
+
+        // At least 1 valid line or mostly valid content
+        return validLineCount > 0;
     }
 
     // Display ads.txt results
