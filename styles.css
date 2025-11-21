@@ -135,6 +135,50 @@ body {
     transform: translateX(4px);
 }
 
+/* Example Buttons */
+.examples-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.examples-label {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.example-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.example-btn {
+    background: var(--surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.example-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+}
+
+.example-btn:active {
+    transform: translateY(0);
+}
+
 /* Results Section */
 .results-section {
     animation: slideUp 0.4s ease;
