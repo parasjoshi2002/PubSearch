@@ -302,16 +302,27 @@ document.addEventListener('DOMContentLoaded', () => {
         return url;
     }
 
-    // CORS Proxies to try (in order of preference, with diverse providers for redundancy)
+    // CORS Proxies to try - only reliable, working proxies
+    // Note: allorigins /get endpoint returns JSON, /raw returns raw content
     const CORS_PROXIES = [
-        // Primary proxies - most reliable
-        (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-        // Backup proxies
-        (url) => `https://proxy.cors.sh/${url}`,
-        (url) => `https://cors-anywhere.herokuapp.com/${url}`,
-        (url) => `https://thingproxy.freeboard.io/fetch/${url}`
+        {
+            name: 'allorigins-json',
+            url: (targetUrl) => `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+            parseResponse: async (response) => {
+                const json = await response.json();
+                return json.contents;
+            }
+        },
+        {
+            name: 'allorigins-raw',
+            url: (targetUrl) => `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+            parseResponse: async (response) => response.text()
+        },
+        {
+            name: 'corsproxy',
+            url: (targetUrl) => `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+            parseResponse: async (response) => response.text()
+        }
     ];
 
     // Fetch ads.txt with multiple fallbacks and retry logic
@@ -319,79 +330,59 @@ document.addEventListener('DOMContentLoaded', () => {
         // Normalize domain (lowercase, trim whitespace)
         const normalizedDomain = baseDomain.toLowerCase().trim();
 
-        // Domain variants to try (order matters - most common patterns first)
+        // Domain variants to try (most common first)
         const domainVariants = [
-            normalizedDomain,                    // example.com
-            `www.${normalizedDomain}`            // www.example.com
+            normalizedDomain,
+            `www.${normalizedDomain}`
         ];
-
-        // Protocol variants (HTTPS first, then HTTP as fallback)
-        const protocols = ['https', 'http'];
 
         const errors = [];
 
-        // Try parallel fetching across proxies for speed, with sequential domain/protocol fallback
+        // Try each domain variant with HTTPS only (HTTP rarely works for ads.txt)
         for (const domain of domainVariants) {
-            for (const protocol of protocols) {
-                const adsTxtUrl = `${protocol}://${domain}/ads.txt`;
+            const adsTxtUrl = `https://${domain}/ads.txt`;
 
-                // Try to fetch using parallel proxy race
-                const result = await tryParallelProxies(adsTxtUrl, errors);
-                if (result) {
-                    return { url: adsTxtUrl, content: result };
+            // Try each proxy sequentially (more reliable than parallel for debugging)
+            for (const proxy of CORS_PROXIES) {
+                try {
+                    const proxyUrl = proxy.url(adsTxtUrl);
+                    const content = await fetchWithProxy(proxyUrl, proxy.parseResponse);
+
+                    // Validate the content
+                    if (isValidAdsTxt(content)) {
+                        return { url: adsTxtUrl, content };
+                    } else {
+                        errors.push(`${proxy.name}: Invalid content (possibly blocked or error page)`);
+                    }
+                } catch (error) {
+                    errors.push(`${proxy.name}: ${error.message}`);
                 }
             }
         }
 
-        // All attempts failed
+        // Check if site might be blocking access
+        const hasAccessDenied = errors.some(e =>
+            e.toLowerCase().includes('403') ||
+            e.toLowerCase().includes('blocked') ||
+            e.toLowerCase().includes('denied')
+        );
+
+        if (hasAccessDenied) {
+            throw new Error('No ads.txt found. This website may block automated access.');
+        }
+
         throw new Error('No ads.txt found.');
     }
 
-    // Try multiple proxies in parallel, return first successful result
-    async function tryParallelProxies(targetUrl, errors) {
-        // Create promises for each proxy
-        const proxyPromises = CORS_PROXIES.map(async (proxyFn, index) => {
-            try {
-                const proxyUrl = proxyFn(targetUrl);
-                const content = await fetchWithTimeout(proxyUrl, 8000);
-
-                // Validate the content
-                if (isValidAdsTxt(content)) {
-                    return { success: true, content, proxyIndex: index };
-                }
-                return { success: false, reason: 'Invalid content' };
-            } catch (error) {
-                errors.push(`Proxy ${index + 1}: ${error.message}`);
-                return { success: false, reason: error.message };
-            }
-        });
-
-        // Use Promise.allSettled to get all results, then find first success
-        const results = await Promise.allSettled(proxyPromises);
-
-        for (const result of results) {
-            if (result.status === 'fulfilled' && result.value.success) {
-                return result.value.content;
-            }
-        }
-
-        return null;
-    }
-
-    // Fetch with timeout
-    async function fetchWithTimeout(url, timeoutMs) {
+    // Simple fetch with proxy - no extra headers that trigger preflight
+    async function fetchWithProxy(url, parseResponse) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
 
         try {
             const response = await fetch(url, {
-                signal: controller.signal,
-                headers: {
-                    'Accept': 'text/plain, */*',
-                    'Cache-Control': 'no-cache'
-                },
-                mode: 'cors',
-                credentials: 'omit'
+                signal: controller.signal
+                // No custom headers - avoids CORS preflight issues
             });
 
             clearTimeout(timeoutId);
@@ -400,7 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(`HTTP ${response.status}`);
             }
 
-            const content = await response.text();
+            const content = await parseResponse(response);
 
             if (!content || content.trim().length === 0) {
                 throw new Error('Empty response');
@@ -450,6 +441,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'access denied',
             'forbidden',
             'unauthorized',
+            "you don't have permission",
+            'permission denied',
             'error 404',
             'error 403',
             'error 500',
@@ -461,6 +454,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'checking your browser',
             'enable javascript',
             'cookies are required',
+            'reference #',
+            'errors.edgesuite.net',
             '{"error',
             '{"message',
             'null',
