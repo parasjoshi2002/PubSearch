@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PubSearch - Website Analyzer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Logo Section -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-pub">Pub</span><span class="logo-search">Search</span>
+            </div>
+            <p class="tagline">Analyze any website instantly</p>
+        </header>
+
+        <!-- Search Section -->
+        <div class="search-section">
+            <div class="search-container">
+                <input
+                    type="text"
+                    id="website-input"
+                    class="search-input"
+                    placeholder="Enter website URL (e.g., example.com)"
+                    autocomplete="off"
+                >
+                <button id="analyze-btn" class="analyze-btn">
+                    <span class="btn-text">Analyze</span>
+                    <span class="btn-icon">→</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-section" class="results-section hidden">
+            <div class="results-header">
+                <h2>Analysis Results</h2>
+                <span id="analyzed-url" class="analyzed-url"></span>
+            </div>
+
+            <div class="results-grid">
+                <!-- General Info Card -->
+                <div class="result-card">
+                    <div class="card-header">
+                        <span class="card-icon">🌐</span>
+                        <h3>General Information</h3>
+                    </div>
+                    <div class="card-content" id="general-info">
+                        <div class="info-row">
+                            <span class="label">Domain:</span>
+                            <span class="value" id="domain-value">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Protocol:</span>
+                            <span class="value" id="protocol-value">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">TLD:</span>
+                            <span class="value" id="tld-value">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Card -->
+                <div class="result-card">
+                    <div class="card-header">
+                        <span class="card-icon">🔒</span>
+                        <h3>Security Status</h3>
+                    </div>
+                    <div class="card-content" id="security-info">
+                        <div class="info-row">
+                            <span class="label">HTTPS:</span>
+                            <span class="value" id="https-value">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Security Rating:</span>
+                            <span class="value" id="security-rating">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Domain Analysis Card -->
+                <div class="result-card">
+                    <div class="card-header">
+                        <span class="card-icon">📊</span>
+                        <h3>Domain Analysis</h3>
+                    </div>
+                    <div class="card-content" id="domain-analysis">
+                        <div class="info-row">
+                            <span class="label">Domain Age:</span>
+                            <span class="value" id="domain-age">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Domain Type:</span>
+                            <span class="value" id="domain-type">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Subdomain:</span>
+                            <span class="value" id="subdomain-value">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- URL Structure Card -->
+                <div class="result-card">
+                    <div class="card-header">
+                        <span class="card-icon">🔗</span>
+                        <h3>URL Structure</h3>
+                    </div>
+                    <div class="card-content" id="url-structure">
+                        <div class="info-row">
+                            <span class="label">Path:</span>
+                            <span class="value" id="path-value">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Query Params:</span>
+                            <span class="value" id="params-value">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">Fragment:</span>
+                            <span class="value" id="fragment-value">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Section -->
+            <div class="summary-card">
+                <div class="card-header">
+                    <span class="card-icon">📋</span>
+                    <h3>Summary</h3>
+                </div>
+                <div class="card-content">
+                    <p id="summary-text">-</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>Analyzing website...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error-section" class="error-section hidden">
+            <div class="error-icon">⚠️</div>
+            <p id="error-message">An error occurred</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
