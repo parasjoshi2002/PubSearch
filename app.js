@@ -302,46 +302,80 @@ document.addEventListener('DOMContentLoaded', () => {
         return url;
     }
 
-    // CORS Proxies to try (in order of preference)
+    // CORS Proxies to try (in order of preference, with diverse providers for redundancy)
     const CORS_PROXIES = [
+        // Primary proxies - most reliable
         (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
         (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+        (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+        // Backup proxies
+        (url) => `https://proxy.cors.sh/${url}`,
+        (url) => `https://cors-anywhere.herokuapp.com/${url}`,
+        (url) => `https://thingproxy.freeboard.io/fetch/${url}`
     ];
 
     // Fetch ads.txt with multiple fallbacks and retry logic
     async function fetchAdsTxtWithRetry(baseDomain) {
-        // Domain variants to try (without www first, then with www)
+        // Normalize domain (lowercase, trim whitespace)
+        const normalizedDomain = baseDomain.toLowerCase().trim();
+
+        // Domain variants to try (order matters - most common patterns first)
         const domainVariants = [
-            baseDomain,
-            `www.${baseDomain}`
+            normalizedDomain,                    // example.com
+            `www.${normalizedDomain}`            // www.example.com
         ];
+
+        // Protocol variants (HTTPS first, then HTTP as fallback)
+        const protocols = ['https', 'http'];
 
         const errors = [];
 
-        // Try each domain variant
+        // Try parallel fetching across proxies for speed, with sequential domain/protocol fallback
         for (const domain of domainVariants) {
-            const adsTxtUrl = `https://${domain}/ads.txt`;
+            for (const protocol of protocols) {
+                const adsTxtUrl = `${protocol}://${domain}/ads.txt`;
 
-            // Try each CORS proxy
-            for (let proxyIndex = 0; proxyIndex < CORS_PROXIES.length; proxyIndex++) {
-                try {
-                    const proxyUrl = CORS_PROXIES[proxyIndex](adsTxtUrl);
-                    const content = await fetchWithTimeout(proxyUrl, 10000);
-
-                    // Validate the content is actually ads.txt
-                    if (isValidAdsTxt(content)) {
-                        return { url: adsTxtUrl, content };
-                    }
-                } catch (error) {
-                    errors.push(`${domain} (proxy ${proxyIndex + 1}): ${error.message}`);
-                    // Continue to next proxy/domain
+                // Try to fetch using parallel proxy race
+                const result = await tryParallelProxies(adsTxtUrl, errors);
+                if (result) {
+                    return { url: adsTxtUrl, content: result };
                 }
             }
         }
 
         // All attempts failed
         throw new Error('No ads.txt found.');
+    }
+
+    // Try multiple proxies in parallel, return first successful result
+    async function tryParallelProxies(targetUrl, errors) {
+        // Create promises for each proxy
+        const proxyPromises = CORS_PROXIES.map(async (proxyFn, index) => {
+            try {
+                const proxyUrl = proxyFn(targetUrl);
+                const content = await fetchWithTimeout(proxyUrl, 8000);
+
+                // Validate the content
+                if (isValidAdsTxt(content)) {
+                    return { success: true, content, proxyIndex: index };
+                }
+                return { success: false, reason: 'Invalid content' };
+            } catch (error) {
+                errors.push(`Proxy ${index + 1}: ${error.message}`);
+                return { success: false, reason: error.message };
+            }
+        });
+
+        // Use Promise.allSettled to get all results, then find first success
+        const results = await Promise.allSettled(proxyPromises);
+
+        for (const result of results) {
+            if (result.status === 'fulfilled' && result.value.success) {
+                return result.value.content;
+            }
+        }
+
+        return null;
     }
 
     // Fetch with timeout
@@ -353,8 +387,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(url, {
                 signal: controller.signal,
                 headers: {
-                    'Accept': 'text/plain, */*'
-                }
+                    'Accept': 'text/plain, */*',
+                    'Cache-Control': 'no-cache'
+                },
+                mode: 'cors',
+                credentials: 'omit'
             });
 
             clearTimeout(timeoutId);
@@ -387,8 +424,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const trimmedContent = content.trim().toLowerCase();
 
-        // Check for HTML indicators (error pages, redirects, etc.)
-        const htmlIndicators = [
+        // Quick rejection: if it starts with < it's likely HTML/XML
+        if (trimmedContent.startsWith('<')) {
+            return false;
+        }
+
+        // Check for HTML/error indicators (comprehensive list)
+        const invalidIndicators = [
             '<!doctype',
             '<html',
             '<head',
@@ -397,24 +439,41 @@ document.addEventListener('DOMContentLoaded', () => {
             '<script',
             '<div',
             '<title',
+            '<span',
+            '<p>',
             '<?xml',
             '<error',
+            '<response',
             '404 not found',
             'page not found',
+            'not found',
             'access denied',
-            'forbidden'
+            'forbidden',
+            'unauthorized',
+            'error 404',
+            'error 403',
+            'error 500',
+            'internal server error',
+            'bad gateway',
+            'service unavailable',
+            'cloudflare',
+            'just a moment',
+            'checking your browser',
+            'enable javascript',
+            'cookies are required',
+            '{"error',
+            '{"message',
+            'null',
+            'undefined'
         ];
 
-        for (const indicator of htmlIndicators) {
+        for (const indicator of invalidIndicators) {
             if (trimmedContent.includes(indicator)) {
                 return false;
             }
         }
 
         // Positive validation: ads.txt should contain typical patterns
-        // Lines with commas (domain, publisher-id, relationship)
-        // Or comment lines starting with #
-        // Or CONTACT/SUBDOMAIN/OWNERDOMAIN/MANAGERDOMAIN directives
         const lines = content.split('\n').filter(line => line.trim().length > 0);
 
         if (lines.length === 0) {
@@ -423,25 +482,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Check if at least some lines look like ads.txt entries
         const validPatterns = [
-            /^#/,                                           // Comments
-            /^[a-z0-9.-]+\s*,\s*[a-z0-9-]+\s*,\s*(DIRECT|RESELLER)/i,  // Standard ads.txt line
-            /^CONTACT=/i,                                   // Contact directive
-            /^SUBDOMAIN=/i,                                 // Subdomain directive
-            /^OWNERDOMAIN=/i,                               // Owner domain directive
-            /^MANAGERDOMAIN=/i,                             // Manager domain directive
-            /^INVENTORYPARTNERDOMAIN=/i                     // Inventory partner directive
+            /^#/,                                                           // Comments
+            /^[a-z0-9.-]+\s*,\s*[a-z0-9_-]+\s*,\s*(DIRECT|RESELLER)/i,     // Standard ads.txt line
+            /^[a-z0-9.-]+\s*,\s*pub-\d+\s*,\s*(DIRECT|RESELLER)/i,         // Google format
+            /^CONTACT=/i,                                                   // Contact directive
+            /^SUBDOMAIN=/i,                                                 // Subdomain directive
+            /^OWNERDOMAIN=/i,                                               // Owner domain directive
+            /^MANAGERDOMAIN=/i,                                             // Manager domain directive
+            /^INVENTORYPARTNERDOMAIN=/i,                                    // Inventory partner directive
+            /^VARIABLE=/i,                                                  // Variable directive
+            /^placeholder/i                                                 // Placeholder (some sites use this)
         ];
 
         let validLineCount = 0;
+        let totalNonEmptyLines = 0;
+
         for (const line of lines) {
             const trimmedLine = line.trim();
-            if (validPatterns.some(pattern => pattern.test(trimmedLine))) {
-                validLineCount++;
+            if (trimmedLine.length > 0) {
+                totalNonEmptyLines++;
+                if (validPatterns.some(pattern => pattern.test(trimmedLine))) {
+                    validLineCount++;
+                }
             }
         }
 
-        // At least 1 valid line or mostly valid content
-        return validLineCount > 0;
+        // At least 1 valid line, or if small file (<=3 lines), at least 30% valid
+        if (validLineCount >= 1) {
+            return true;
+        }
+
+        // For very small files, be more lenient
+        if (totalNonEmptyLines <= 3 && totalNonEmptyLines > 0) {
+            // Check if any line contains comma (basic ads.txt structure)
+            return lines.some(line => line.includes(',') && !line.startsWith('#'));
+        }
+
+        return false;
     }
 
     // Display ads.txt results
