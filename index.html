@@ -171,6 +171,32 @@
                 <h2>ads.txt Content</h2>
                 <span id="ads-txt-url" class="analyzed-url"></span>
             </div>
+
+            <!-- Search Bar for ads.txt content -->
+            <div id="ads-txt-search-bar" class="ads-txt-search-bar">
+                <div class="search-bar-container">
+                    <input
+                        type="text"
+                        id="ads-txt-search-input"
+                        class="ads-txt-search-input"
+                        placeholder="Search in ads.txt (Ctrl+F)"
+                        autocomplete="off"
+                    >
+                    <span id="ads-txt-match-count" class="match-count"></span>
+                    <div class="search-nav-buttons">
+                        <button id="ads-txt-prev-btn" class="search-nav-btn" title="Previous match (Shift+Enter)">
+                            <span>&#8593;</span>
+                        </button>
+                        <button id="ads-txt-next-btn" class="search-nav-btn" title="Next match (Enter)">
+                            <span>&#8595;</span>
+                        </button>
+                    </div>
+                    <button id="ads-txt-close-search" class="search-close-btn" title="Close search (Esc)">
+                        <span>&times;</span>
+                    </button>
+                </div>
+            </div>
+
             <div class="ads-txt-content">
                 <pre id="ads-txt-content"></pre>
             </div>
