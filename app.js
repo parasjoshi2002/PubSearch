@@ -38,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const adsTxtPrevBtn = document.getElementById('ads-txt-prev-btn');
     const adsTxtNextBtn = document.getElementById('ads-txt-next-btn');
     const adsTxtCloseSearch = document.getElementById('ads-txt-close-search');
+    const adsTxtSearchToggle = document.getElementById('ads-txt-search-toggle');
 
     // Search state
     let originalAdsTxtContent = '';
@@ -76,13 +77,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 navigateToNextMatch();
             }
         } else if (e.key === 'Escape') {
-            clearAdsTxtSearch();
-            adsTxtSearchInput.blur();
+            hideSearchBar();
         }
     });
     adsTxtPrevBtn.addEventListener('click', navigateToPrevMatch);
     adsTxtNextBtn.addEventListener('click', navigateToNextMatch);
-    adsTxtCloseSearch.addEventListener('click', clearAdsTxtSearch);
+    adsTxtCloseSearch.addEventListener('click', hideSearchBar);
+    adsTxtSearchToggle.addEventListener('click', toggleSearchBar);
 
     // Global Ctrl+F handler for ads.txt search
     document.addEventListener('keydown', (e) => {
@@ -90,8 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
             if (!adsTxtSection.classList.contains('hidden')) {
                 e.preventDefault();
-                adsTxtSearchInput.focus();
-                adsTxtSearchInput.select();
+                showSearchBar();
             }
         }
     });
@@ -592,7 +592,9 @@ document.addEventListener('DOMContentLoaded', () => {
         originalAdsTxtContent = content;
         adsTxtContent.textContent = content;
 
-        // Reset search state
+        // Reset search state and hide search bar
+        adsTxtSearchBar.classList.add('hidden');
+        adsTxtSearchToggle.classList.remove('active');
         clearAdsTxtSearch();
 
         // Show ads.txt section
@@ -746,6 +748,29 @@ document.addEventListener('DOMContentLoaded', () => {
         currentSearchMatches = [];
         currentMatchIndex = -1;
         updateNavButtons();
+    }
+
+    // Search bar visibility functions
+    function showSearchBar() {
+        adsTxtSearchBar.classList.remove('hidden');
+        adsTxtSearchToggle.classList.add('active');
+        adsTxtSearchInput.focus();
+        adsTxtSearchInput.select();
+    }
+
+    function hideSearchBar() {
+        clearAdsTxtSearch();
+        adsTxtSearchBar.classList.add('hidden');
+        adsTxtSearchToggle.classList.remove('active');
+        adsTxtSearchInput.blur();
+    }
+
+    function toggleSearchBar() {
+        if (adsTxtSearchBar.classList.contains('hidden')) {
+            showSearchBar();
+        } else {
+            hideSearchBar();
+        }
     }
 
     // Helper function to escape special regex characters
