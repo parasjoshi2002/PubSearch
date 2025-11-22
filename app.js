@@ -32,13 +32,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const adsTxtContent = document.getElementById('ads-txt-content');
 
     // Ads.txt Search Elements
-    const adsTxtSearchBar = document.getElementById('ads-txt-search-bar');
     const adsTxtSearchInput = document.getElementById('ads-txt-search-input');
     const adsTxtMatchCount = document.getElementById('ads-txt-match-count');
     const adsTxtPrevBtn = document.getElementById('ads-txt-prev-btn');
     const adsTxtNextBtn = document.getElementById('ads-txt-next-btn');
-    const adsTxtCloseSearch = document.getElementById('ads-txt-close-search');
-    const adsTxtSearchToggle = document.getElementById('ads-txt-search-toggle');
+    const adsTxtClearBtn = document.getElementById('ads-txt-clear-btn');
 
     // Search state
     let originalAdsTxtContent = '';
@@ -77,13 +75,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 navigateToNextMatch();
             }
         } else if (e.key === 'Escape') {
-            hideSearchBar();
+            clearAdsTxtSearch();
+            adsTxtSearchInput.blur();
         }
     });
     adsTxtPrevBtn.addEventListener('click', navigateToPrevMatch);
     adsTxtNextBtn.addEventListener('click', navigateToNextMatch);
-    adsTxtCloseSearch.addEventListener('click', hideSearchBar);
-    adsTxtSearchToggle.addEventListener('click', toggleSearchBar);
+    adsTxtClearBtn.addEventListener('click', () => {
+        clearAdsTxtSearch();
+        adsTxtSearchInput.focus();
+    });
 
     // Global Ctrl+F handler for ads.txt search
     document.addEventListener('keydown', (e) => {
@@ -91,7 +92,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
             if (!adsTxtSection.classList.contains('hidden')) {
                 e.preventDefault();
-                showSearchBar();
+                adsTxtSearchInput.focus();
+                adsTxtSearchInput.select();
             }
         }
     });
@@ -592,9 +594,7 @@ document.addEventListener('DOMContentLoaded', () => {
         originalAdsTxtContent = content;
         adsTxtContent.textContent = content;
 
-        // Reset search state and hide search bar
-        adsTxtSearchBar.classList.add('hidden');
-        adsTxtSearchToggle.classList.remove('active');
+        // Reset search state
         clearAdsTxtSearch();
 
         // Show ads.txt section
@@ -748,29 +748,6 @@ document.addEventListener('DOMContentLoaded', () => {
         currentSearchMatches = [];
         currentMatchIndex = -1;
         updateNavButtons();
-    }
-
-    // Search bar visibility functions
-    function showSearchBar() {
-        adsTxtSearchBar.classList.remove('hidden');
-        adsTxtSearchToggle.classList.add('active');
-        adsTxtSearchInput.focus();
-        adsTxtSearchInput.select();
-    }
-
-    function hideSearchBar() {
-        clearAdsTxtSearch();
-        adsTxtSearchBar.classList.add('hidden');
-        adsTxtSearchToggle.classList.remove('active');
-        adsTxtSearchInput.blur();
-    }
-
-    function toggleSearchBar() {
-        if (adsTxtSearchBar.classList.contains('hidden')) {
-            showSearchBar();
-        } else {
-            hideSearchBar();
-        }
     }
 
     // Helper function to escape special regex characters
